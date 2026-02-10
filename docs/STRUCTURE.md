@@ -1,26 +1,158 @@
-🛒 E-Commerce Application
+# 🛒 E-Commerce Application
 
-🗂️ STRUCTURE DU PROJET
+
+## 🗂️ Structure du Projet
+```
 ecommerce-pfe/
-├── frontend/                # React.js
+│
+├── 📱 frontend/                 # Application React.js
 │   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   └── App.js
 │   ├── public/
 │   ├── package.json
 │   └── Dockerfile
-├── backend/                 # Node.js + Express
+│
+├── 🔧 backend/                  # API Node.js + Express
+│   ├── routes/
+│   ├── controllers/
+│   ├── models/
+│   ├── middleware/
 │   ├── server.js
 │   ├── init-db.js
 │   ├── package.json
-│   ├── .env
+│   ├── .env.example
 │   └── Dockerfile
-├── worker/                  # Worker SQS (emails)
+│
+├── ⚙️ worker/                   # Worker SQS (envoi emails)
 │   ├── worker.js
 │   ├── package.json
 │   └── Dockerfile
-├── terraform/               # Infrastructure AWS
-├── k8s/                     # Kubernetes manifests
-├── .github/workflows/       # CI/CD
-└── docs/                    # Documentation
+│
+├── 🏗️ terraform/                # Infrastructure as Code
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── modules/
+│       ├── vpc/
+│       ├── eks/
+│       ├── rds/
+│       └── s3/
+│
+├── ☸️ k8s/                       # Manifests Kubernetes
+│   ├── frontend/
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
+│   ├── backend/
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
+│   └── worker/
+│       └── deployment.yaml
+│
+├── 🔄 .github/workflows/        # CI/CD Pipelines
+│   ├── frontend.yml
+│   ├── backend.yml
+│   └── terraform.yml
+│
+├── 📚 docs/                     # Documentation
+│   ├── architecture.md
+│   ├── deployment.md
+│   └── api.md
+│
+├── .gitignore
+├── README.md
+└── docker-compose.yml           # Développement local
+```
+
+---
+
+## 🏗️ Architecture
+
+### Vue d'ensemble
+```
+┌─────────────┐
+│   Client    │
+│  (Browser)  │
+└──────┬──────┘
+       │ HTTPS
+       ▼
+┌──────────────────────┐
+│  Application Load    │
+│     Balancer         │
+└──────┬───────────────┘
+       │
+       ▼
+┌─────────────────────────────────────┐
+│         EKS Cluster                 │
+│                                     │
+│  ┌──────────┐      ┌─────────────┐ │
+│  │ Frontend │      │   Backend   │ │
+│  │  Pods    │◄────►│    Pods     │ │
+│  │ (React)  │      │  (Node.js)  │ │
+│  └──────────┘      └──────┬──────┘ │
+│                           │         │
+└───────────────────────────┼─────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        │                   │                   │
+        ▼                   ▼                   ▼
+┌───────────────┐   ┌──────────────┐   ┌──────────────┐
+│   RDS MySQL   │   │  S3 Bucket   │   │  SQS Queue   │
+│   Database    │   │   (Images)   │   │   (Jobs)     │
+└───────────────┘   └──────────────┘   └──────┬───────┘
+                                              │
+                                              ▼
+                                    ┌──────────────────┐
+                                    │  Worker Pods     │
+                                    │  (Email sender)  │
+                                    └──────────────────┘
+```
+
+---
+
+## 🔵 Services AWS Utilisés
+
+| Service | Description | Utilisation |
+|---------|-------------|-------------|
+| **VPC** | Réseau privé isolé | Isolation et sécurité réseau |
+| **EKS** | Kubernetes managé | Orchestration des conteneurs |
+| **RDS** | Base de données MySQL | Stockage des données |
+| **S3** | Stockage objets | Images produits + Terraform state |
+| **ECR** | Registry Docker | Images des conteneurs |
+| **SQS** | File d'attente | Jobs asynchrones (emails) |
+| **IAM** | Gestion des accès | Permissions et rôles |
+| **CloudWatch** | Monitoring | Logs et métriques |
+| **Secrets Manager** | Gestion secrets | Mots de passe et clés API |
+| **NAT Gateway** | Accès Internet | Sortie Internet pour subnets privés |
+| **ALB** | Load Balancer | Distribution du trafic |
+
+---
+
+## 🚀 Technologies Utilisées
+
+### Frontend
+- ⚛️ **React.js** - Framework UI
+- 🎨 **TailwindCSS** / **Material-UI** - Styling
+- 🔄 **Axios** - HTTP Client
+- 🗂️ **React Router** - Navigation
+
+### Backend
+- 🟢 **Node.js** - Runtime JavaScript
+- 🚂 **Express.js** - Framework web
+- 🗄️ **MySQL** - Base de données
+- 🔐 **JWT** - Authentication
+- ✅ **Joi** - Validation
+
+### DevOps
+- 🐳 **Docker** - Containerisation
+- ☸️ **Kubernetes** - Orchestration
+- 🏗️ **Terraform** - Infrastructure as Code
+- 🔄 **GitHub Actions** - CI/CD
+
+### AWS Services
+- ☁️ Amazon EKS, RDS, S3, SQS, ECR, CloudWatch
 
 
 # 🔵 POURQUOI Chaque Service AWS dans le Projet ?
