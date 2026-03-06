@@ -16,3 +16,5 @@ build/
 # OS files
 .DS_Store
 Thumbs.db
+k8s/secrets/*.yaml
+terraform/terraform.tfvars

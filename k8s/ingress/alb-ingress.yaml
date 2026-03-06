@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress
+  namespace: default
+  annotations:
+    # Type de Load Balancer
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    
+    # Subnets publics (à remplacer par VOS subnet IDs publics)
+    alb.ingress.kubernetes.io/subnets: subnet-0ba6f6bc6cf54c64d,subnet-05d65bd5f069f400f
+    
+    # Security Groups
+    alb.ingress.kubernetes.io/security-groups: sg-05dfc1c20526a6f80
+    
+    # Health Check
+    #alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-path: /api/products
+
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    
+    # Tags
+    alb.ingress.kubernetes.io/tags: Environment=dev,Project=ecommerce-pfe
+    
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      # Route / vers Frontend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80
+      # Route /api vers Backend (si besoin d'accès direct)
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 5000

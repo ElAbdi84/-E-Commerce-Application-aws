@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: default
+  labels:
+    app: backend
+    tier: api
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+    name: http
+  sessionAffinity: None
+
+# Ce Service expose le Backend en interne dans le cluster
+# Les autres Pods (Frontend) peuvent y accéder via : http://backend-service:5000

@@ -421,20 +421,40 @@ app.post('/api/products/:id/image', authenticateToken, isAdmin, upload.single('i
 // ===========================
 
 // Récupérer le panier de l'utilisateur
+
 app.get('/api/cart', authenticateToken, async (req, res) => {
   try {
-    const [items] = await pool.execute(
-      `SELECT c.*, p.name, p.price, p.image_url, p.stock,
-              (c.quantity * p.price) as subtotal
-       FROM cart_items c
-       JOIN products p ON c.product_id = p.id
-       WHERE c.user_id = ?`,
-      [req.user.userId]
-    );
+    const [items] = await pool.execute(`
+      SELECT 
+        ci.product_id,
+        ci.quantity,
+        p.name,
+        p.price,
+        p.image_url,
+        (p.price * ci.quantity) as subtotal
+      FROM cart_items ci
+      JOIN products p ON ci.product_id = p.id
+      WHERE ci.user_id = ?
+    `, [req.user.userId]);
 
-    const total = items.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
+    // ✅ AJOUTER : Générer URLs pré-signées pour les images S3
+    const itemsWithUrls = items.map(item => {
+      if (item.image_url && !item.image_url.startsWith('http')) {
+        item.image_url = s3.getSignedUrl('getObject', {
+          Bucket: process.env.S3_BUCKET_NAME,
+          Key: item.image_url,
+          Expires: 3600
+        });
+      }
+      return item;
+    });
 
-    res.json({ items, total });
+    const total = itemsWithUrls.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
+
+    res.json({
+      items: itemsWithUrls,
+      total: parseFloat(total.toFixed(2))  // Nombre, pas string
+    });
   } catch (error) {
     console.error('[ERROR] Get cart:', error);
     res.status(500).json({ error: 'Erreur récupération panier' });

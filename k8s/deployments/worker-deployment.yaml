@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-deployment
+  namespace: default
+  labels:
+    app: worker
+    tier: processing
+    project: ecommerce
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        tier: processing
+    spec:
+      containers:
+      - name: worker
+        image: 714454206137.dkr.ecr.us-east-1.amazonaws.com/ecommerce-worker:latest  # ← Remplacez VOTRE_ACCOUNT_ID
+        imagePullPolicy: Always
+        
+        env:
+        - name: AWS_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: AWS_REGION
+        - name: SQS_QUEUE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: SQS_QUEUE_URL
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        
+        # Resource Limits (optimisés pour t3.small)
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+
+# NOTE : Ce Worker ne sera pleinement fonctionnel qu'après la Partie 7 (SQS)
+# Pour l'instant, il peut être déployé mais n'aura pas de queue SQS à écouter
+#
+# INSTRUCTIONS :
+# 1. Remplacez VOTRE_ACCOUNT_ID dans l'URL de l'image
+#
+# 2. Appliquer :
+#    kubectl apply -f k8s/deployments/worker-deployment.yaml
