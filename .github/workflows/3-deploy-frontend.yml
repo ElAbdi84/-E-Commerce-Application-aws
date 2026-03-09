@@ -1,0 +1,147 @@
+# ============================================================================
+# WORKFLOW 3 : DÉPLOIEMENT FRONTEND UNIQUEMENT
+# ============================================================================
+# 
+# Ce workflow déploie UNIQUEMENT le Frontend quand vous modifiez le code Frontend
+# 
+# Déclenché automatiquement sur :
+#   - Push sur main avec changements dans frontend/
+#
+# Durée : 3-5 minutes
+# ============================================================================
+
+name: 3️⃣ Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/3-deploy-frontend.yml'
+  workflow_dispatch:  # Permet aussi déclenchement manuel
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: ecommerce-frontend
+  EKS_CLUSTER_NAME: ecommerce-cluster
+  DEPLOYMENT_NAME: frontend-deployment
+
+jobs:
+  deploy-frontend:
+    name: 🎨 Build & Deploy Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+    # ========================================================================
+    # ÉTAPE 1 : CHECKOUT CODE
+    # ========================================================================
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    # ========================================================================
+    # ÉTAPE 2 : CONFIGURE AWS
+    # ========================================================================
+    - name: 🔐 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # ========================================================================
+    # ÉTAPE 3 : LOGIN ECR
+    # ========================================================================
+    - name: 🔐 Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # ========================================================================
+    # ÉTAPE 4 : BUILD & PUSH DOCKER IMAGE
+    # ========================================================================
+    - name: 🐳 Build, tag, and push Frontend image
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd frontend
+        
+        echo "📦 Building Frontend Docker image..."
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        
+        echo "🏷️ Tagging as latest..."
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+                   $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "📤 Pushing to ECR..."
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "✅ Frontend image pushed successfully"
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    # ========================================================================
+    # ÉTAPE 5 : UPDATE KUBECONFIG
+    # ========================================================================
+    - name: ⚙️ Update kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --name ${{ env.EKS_CLUSTER_NAME }} \
+          --region ${{ env.AWS_REGION }}
+
+    # ========================================================================
+    # ÉTAPE 6 : DEPLOY TO EKS
+    # ========================================================================
+    - name: 🚀 Deploy Frontend to EKS
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        echo "🚀 Updating Frontend deployment..."
+        
+        kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
+          frontend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          --record
+        
+        echo "⏳ Waiting for rollout to complete..."
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} --timeout=5m
+        
+        echo "✅ Frontend deployment successful!"
+
+    # ========================================================================
+    # ÉTAPE 7 : VERIFY DEPLOYMENT
+    # ========================================================================
+    - name: ✅ Verify Frontend deployment
+      run: |
+        echo "📊 Checking Frontend pods..."
+        kubectl get pods -l app=frontend
+        
+        echo ""
+        echo "🔍 Waiting for pods to be ready..."
+        kubectl wait --for=condition=ready pod -l app=frontend --timeout=2m
+        
+        echo ""
+        echo "✅ Frontend is running and healthy!"
+
+    # ========================================================================
+    # ÉTAPE 8 : GET APPLICATION URL
+    # ========================================================================
+    - name: 🌐 Get Application URL
+      run: |
+        echo "================================================"
+        echo "🌍 URL DE L'APPLICATION:"
+        kubectl get ingress ecommerce-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+        echo ""
+        echo "================================================"
+
+    # ========================================================================
+    # ÉTAPE 9 : ROLLBACK ON FAILURE
+    # ========================================================================
+    - name: ❌ Rollback on failure
+      if: failure()
+      run: |
+        echo "⚠️ Deployment failed! Rolling back to previous version..."
+        kubectl rollout undo deployment/${{ env.DEPLOYMENT_NAME }}
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }}
+        echo "✅ Rollback complete"

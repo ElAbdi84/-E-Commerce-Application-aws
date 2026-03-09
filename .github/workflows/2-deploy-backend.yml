@@ -1,0 +1,136 @@
+# ============================================================================
+# WORKFLOW 2 : DÉPLOIEMENT BACKEND UNIQUEMENT
+# ============================================================================
+# 
+# Ce workflow déploie UNIQUEMENT le Backend quand vous modifiez le code Backend
+# 
+# Déclenché automatiquement sur :
+#   - Push sur main avec changements dans backend/
+#
+# Durée : 3-5 minutes
+# ============================================================================
+
+name: 2️⃣ Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/2-deploy-backend.yml'
+  workflow_dispatch:  # Permet aussi déclenchement manuel
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: ecommerce-backend
+  EKS_CLUSTER_NAME: ecommerce-cluster
+  DEPLOYMENT_NAME: backend-deployment
+
+jobs:
+  deploy-backend:
+    name: 🚀 Build & Deploy Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+    # ========================================================================
+    # ÉTAPE 1 : CHECKOUT CODE
+    # ========================================================================
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    # ========================================================================
+    # ÉTAPE 2 : CONFIGURE AWS
+    # ========================================================================
+    - name: 🔐 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # ========================================================================
+    # ÉTAPE 3 : LOGIN ECR
+    # ========================================================================
+    - name: 🔐 Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # ========================================================================
+    # ÉTAPE 4 : BUILD & PUSH DOCKER IMAGE
+    # ========================================================================
+    - name: 🐳 Build, tag, and push Backend image
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd backend
+        
+        echo "📦 Building Backend Docker image..."
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        
+        echo "🏷️ Tagging as latest..."
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+                   $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "📤 Pushing to ECR..."
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "✅ Backend image pushed successfully"
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    # ========================================================================
+    # ÉTAPE 5 : UPDATE KUBECONFIG
+    # ========================================================================
+    - name: ⚙️ Update kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --name ${{ env.EKS_CLUSTER_NAME }} \
+          --region ${{ env.AWS_REGION }}
+
+    # ========================================================================
+    # ÉTAPE 6 : DEPLOY TO EKS
+    # ========================================================================
+    - name: 🚀 Deploy Backend to EKS
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        echo "🚀 Updating Backend deployment..."
+        
+        kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
+          backend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          --record
+        
+        echo "⏳ Waiting for rollout to complete..."
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} --timeout=5m
+        
+        echo "✅ Backend deployment successful!"
+
+    # ========================================================================
+    # ÉTAPE 7 : VERIFY DEPLOYMENT
+    # ========================================================================
+    - name: ✅ Verify Backend deployment
+      run: |
+        echo "📊 Checking Backend pods..."
+        kubectl get pods -l app=backend
+        
+        echo ""
+        echo "🔍 Waiting for pods to be ready..."
+        kubectl wait --for=condition=ready pod -l app=backend --timeout=2m
+        
+        echo ""
+        echo "✅ Backend is running and healthy!"
+
+    # ========================================================================
+    # ÉTAPE 8 : ROLLBACK ON FAILURE
+    # ========================================================================
+    - name: ❌ Rollback on failure
+      if: failure()
+      run: |
+        echo "⚠️ Deployment failed! Rolling back to previous version..."
+        kubectl rollout undo deployment/${{ env.DEPLOYMENT_NAME }}
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }}
+        echo "✅ Rollback complete"

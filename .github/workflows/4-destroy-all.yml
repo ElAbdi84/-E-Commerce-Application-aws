@@ -1,0 +1,226 @@
+# ============================================================================
+# WORKFLOW 4 : DESTRUCTION COMPLÈTE DE L'INFRASTRUCTURE
+# ============================================================================
+# 
+# Ce workflow DÉTRUIT TOUTE l'infrastructure pour économiser les coûts AWS
+# 
+# ⚠️ ATTENTION : Déclenché UNIQUEMENT manuellement avec confirmation
+# 
+# Ce qui sera supprimé :
+#   - Ressources Kubernetes (Deployments, Services, Ingress)
+#   - Cluster EKS
+#   - RDS Database
+#   - VPC et Subnets
+#   - Security Groups
+#   - IAM Roles
+#
+# Ce qui sera CONSERVÉ (à supprimer manuellement si besoin) :
+#   - S3 Bucket (données produits)
+#   - ECR Repositories (images Docker)
+#
+# Durée : 8-12 minutes
+# ============================================================================
+
+name: 4️⃣ Destroy All Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Tapez "DESTROY" pour confirmer la destruction complète'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: ecommerce-cluster
+  TF_VERSION: 1.7.0
+
+jobs:
+  # ==========================================================================
+  # JOB 1 : VÉRIFICATION DE LA CONFIRMATION
+  # ==========================================================================
+  verify-confirmation:
+    name: ⚠️ Verify Destruction Confirmation
+    runs-on: ubuntu-latest
+    outputs:
+      confirmed: ${{ steps.check.outputs.confirmed }}
+    
+    steps:
+    - name: ⚠️ Check confirmation input
+      id: check
+      run: |
+        if [ "${{ github.event.inputs.confirmation }}" == "DESTROY" ]; then
+          echo "confirmed=true" >> $GITHUB_OUTPUT
+          echo "✅ Confirmation valide - destruction autorisée"
+          echo ""
+          echo "⚠️⚠️⚠️ ATTENTION ⚠️⚠️⚠️"
+          echo "Toute l'infrastructure va être détruite dans 10 secondes..."
+          sleep 10
+        else
+          echo "confirmed=false" >> $GITHUB_OUTPUT
+          echo "❌ Confirmation invalide"
+          echo "Vous avez tapé: ${{ github.event.inputs.confirmation }}"
+          echo "Il fallait taper exactement: DESTROY"
+          exit 1
+        fi
+
+  # ==========================================================================
+  # JOB 2 : DESTROY KUBERNETES RESOURCES (PHASE 2)
+  # ==========================================================================
+  destroy-kubernetes:
+    name: 🗑️ Destroy Kubernetes Resources
+    runs-on: ubuntu-latest
+    needs: verify-confirmation
+    if: needs.verify-confirmation.outputs.confirmed == 'true'
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: 🔐 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: ⚙️ Update kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --name ${{ env.EKS_CLUSTER_NAME }} \
+          --region ${{ env.AWS_REGION }}
+      continue-on-error: true
+
+    - name: 🗑️ Terraform Destroy (Phase 2 - Kubernetes)
+      run: |
+        cd terraform-k8s
+        
+        echo "📦 Initializing Terraform..."
+        terraform init
+        
+        echo "🗑️ Destroying Kubernetes resources..."
+        terraform destroy -auto-approve
+        
+        echo "✅ Kubernetes resources destroyed"
+      continue-on-error: true
+
+    - name: ⏰ Wait for cleanup
+      run: |
+        echo "⏳ Waiting for Kubernetes resources cleanup..."
+        sleep 60
+
+  # ==========================================================================
+  # JOB 3 : DESTROY AWS INFRASTRUCTURE (PHASE 1)
+  # ==========================================================================
+  destroy-infrastructure:
+    name: 🗑️ Destroy AWS Infrastructure
+    runs-on: ubuntu-latest
+    needs: destroy-kubernetes
+    if: always() && needs.verify-confirmation.outputs.confirmed == 'true'
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: 🔐 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: 🗑️ Terraform Destroy (Phase 1 - Infrastructure)
+      run: |
+        cd terraform
+        
+        echo "📦 Initializing Terraform..."
+        terraform init
+        
+        echo "🗑️ Destroying AWS infrastructure..."
+        echo "This includes: VPC, EKS, RDS, Security Groups, IAM Roles"
+        terraform destroy -auto-approve
+        
+        echo "✅ AWS infrastructure destroyed"
+
+    - name: 📋 Cleanup Summary
+      run: |
+        echo "================================================"
+        echo "✅ DESTRUCTION COMPLÈTE TERMINÉE"
+        echo "================================================"
+        echo ""
+        echo "Ressources supprimées:"
+        echo "  ✅ Deployments Kubernetes"
+        echo "  ✅ Services Kubernetes"
+        echo "  ✅ Ingress ALB"
+        echo "  ✅ HPA (Auto-scaling)"
+        echo "  ✅ Cluster EKS"
+        echo "  ✅ RDS Database"
+        echo "  ✅ VPC & Subnets"
+        echo "  ✅ Security Groups"
+        echo "  ✅ NAT Gateways"
+        echo "  ✅ IAM Roles"
+        echo ""
+        echo "⚠️  CONSERVÉES (à supprimer manuellement si besoin):"
+        echo "  - S3 Bucket: ecommerce-products-oumaymaelabdi-2026"
+        echo "  - ECR Repository: ecommerce-backend"
+        echo "  - ECR Repository: ecommerce-frontend"
+        echo "  - ECR Repository: ecommerce-worker"
+        echo ""
+        echo "💡 Pour supprimer S3 et ECR:"
+        echo "   aws s3 rb s3://ecommerce-products-oumaymaelabdi-2026 --force"
+        echo "   aws ecr delete-repository --repository-name ecommerce-backend --force"
+        echo "   aws ecr delete-repository --repository-name ecommerce-frontend --force"
+        echo "   aws ecr delete-repository --repository-name ecommerce-worker --force"
+        echo "================================================"
+
+  # ==========================================================================
+  # JOB 4 : VÉRIFICATION FINALE
+  # ==========================================================================
+  verify-cleanup:
+    name: 🔍 Verify Cleanup
+    runs-on: ubuntu-latest
+    needs: destroy-infrastructure
+    if: always()
+    
+    steps:
+    - name: 🔐 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: 🔍 Verify EKS cluster deleted
+      run: |
+        echo "🔍 Checking if EKS cluster is deleted..."
+        if aws eks describe-cluster --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }} 2>/dev/null; then
+          echo "⚠️ Cluster still exists! May need manual cleanup."
+        else
+          echo "✅ Cluster successfully deleted"
+        fi
+      continue-on-error: true
+
+    - name: 📋 List remaining AWS resources
+      run: |
+        echo ""
+        echo "📋 Ressources restantes (S3, ECR):"
+        echo ""
+        echo "S3 Buckets:"
+        aws s3 ls | grep ecommerce || echo "  Aucun bucket ecommerce"
+        echo ""
+        echo "ECR Repositories:"
+        aws ecr describe-repositories --region ${{ env.AWS_REGION }} 2>/dev/null | \
+          jq -r '.repositories[].repositoryName' | grep ecommerce || echo "  Aucun repo ECR ecommerce"
+        echo ""
+        echo "💰 Estimated monthly cost after cleanup: $0-5 (S3 storage only)"
