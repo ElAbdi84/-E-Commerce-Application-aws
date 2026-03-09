@@ -113,7 +113,7 @@ variable "db_allocated_storage" {
 variable "db_engine_version" {
   description = "Version du moteur MySQL"
   type        = string
-  default     = "8.0.35"
+  default     = "8.0"
 }
 
 # ==================== S3 ====================
