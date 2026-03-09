@@ -98,6 +98,12 @@ jobs:
       continue-on-error: true
 
     - name: 🗑️ Terraform Destroy (Phase 2 - Kubernetes)
+      env:
+        TF_VAR_db_password: ${{ secrets.TF_VAR_db_password }}
+        TF_VAR_s3_bucket_name: ${{ secrets.TF_VAR_s3_bucket_name }}
+        TF_VAR_jwt_secret: ${{ secrets.TF_VAR_jwt_secret }}
+        TF_VAR_aws_access_key_id: ${{ secrets.TF_VAR_aws_access_key_id }}
+        TF_VAR_aws_secret_access_key: ${{ secrets.TF_VAR_aws_secret_access_key }}
       run: |
         cd terraform-k8s
         
@@ -141,6 +147,12 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: 🗑️ Terraform Destroy (Phase 1 - Infrastructure)
+      env:
+        TF_VAR_db_password: ${{ secrets.TF_VAR_db_password }}
+        TF_VAR_s3_bucket_name: ${{ secrets.TF_VAR_s3_bucket_name }}
+        TF_VAR_jwt_secret: ${{ secrets.TF_VAR_jwt_secret }}
+        TF_VAR_aws_access_key_id: ${{ secrets.TF_VAR_aws_access_key_id }}
+        TF_VAR_aws_secret_access_key: ${{ secrets.TF_VAR_aws_secret_access_key }}
       run: |
         cd terraform
         
