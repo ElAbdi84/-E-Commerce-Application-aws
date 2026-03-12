@@ -1,16 +1,18 @@
 # ============================================================================
-# WORKFLOW 2 : DÉPLOIEMENT BACKEND UNIQUEMENT
+# WORKFLOW : DÉPLOIEMENT BACKEND
 # ============================================================================
 # 
-# Ce workflow déploie UNIQUEMENT le Backend quand vous modifiez le code Backend
+# Ce workflow déploie le Backend sur l'infrastructure EKS existante
+# 
+# Prérequis : Infrastructure déjà déployée avec deploy-infra.sh
 # 
 # Déclenché automatiquement sur :
 #   - Push sur main avec changements dans backend/
 #
-# Durée : 3-5 minutes
+# Durée : 2-3 minutes
 # ============================================================================
 
-name: 2️⃣ Deploy Backend
+name: 🐳 Deploy Backend
 
 on:
   push:
@@ -18,8 +20,7 @@ on:
       - main
     paths:
       - 'backend/**'
-      - '.github/workflows/2-deploy-backend.yml'
-  workflow_dispatch:  # Permet aussi déclenchement manuel
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1

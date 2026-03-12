@@ -1,16 +1,18 @@
 # ============================================================================
-# WORKFLOW 3 : DÉPLOIEMENT FRONTEND UNIQUEMENT
+# WORKFLOW : DÉPLOIEMENT FRONTEND
 # ============================================================================
 # 
-# Ce workflow déploie UNIQUEMENT le Frontend quand vous modifiez le code Frontend
+# Ce workflow déploie le Frontend sur l'infrastructure EKS existante
+# 
+# Prérequis : Infrastructure déjà déployée avec deploy-infra.sh
 # 
 # Déclenché automatiquement sur :
 #   - Push sur main avec changements dans frontend/
 #
-# Durée : 3-5 minutes
+# Durée : 2-3 minutes
 # ============================================================================
 
-name: 3️⃣ Deploy Frontend
+name: 🎨 Deploy Frontend
 
 on:
   push:
@@ -18,8 +20,7 @@ on:
       - main
     paths:
       - 'frontend/**'
-      - '.github/workflows/3-deploy-frontend.yml'
-  workflow_dispatch:  # Permet aussi déclenchement manuel
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
