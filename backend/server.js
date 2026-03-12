@@ -152,7 +152,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     );
 
     if (users.length === 0) {
-      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+      return res.status(404).json({ error: 'Utilisateurrrrrr non trouvé' });
     }
 
     res.json(users[0]);
