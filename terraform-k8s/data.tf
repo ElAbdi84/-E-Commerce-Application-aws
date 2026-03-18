@@ -53,3 +53,12 @@ data "aws_subnets" "public" {
 data "aws_iam_role" "alb_controller" {
   name = "${var.project_name}-alb-controller-role"
 }
+
+# Data source pour récupérer l'URL de la queue SQS
+data "aws_sqs_queue" "main" {
+  name = "${var.project_name}-queue"
+}
+
+data "aws_ecr_repository" "worker" {
+  name = "ecommerce-worker"
+}

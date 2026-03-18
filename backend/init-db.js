@@ -1,14 +1,14 @@
-// backend/init-db.js (VERSION AVEC IMAGES)
+// backend/init-db.js - VERSION COMPLÈTE AVEC TABLE NOTIFICATIONS
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 require('dotenv').config();
 
 async function initDatabase() {
   let connection;
-  
+
   try {
     console.log('🔄 Connexion à MySQL...');
-    
+
     connection = await mysql.createConnection({
       host: process.env.DB_HOST || 'localhost',
       user: process.env.DB_USER || 'root',
@@ -130,6 +130,25 @@ async function initDatabase() {
     `);
     console.log('✅ Table order_items créée');
 
+    // ✅ Table notifications (NOUVEAU - pour Worker SQS)
+    console.log('📝 Création table notifications...');
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        user_id INT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        message TEXT NOT NULL,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_user (user_id),
+        INDEX idx_type (type),
+        INDEX idx_read (is_read),
+        INDEX idx_created (created_at)
+      )
+    `);
+    console.log('✅ Table notifications créée');
+
     // ===========================
     // DONNÉES DE TEST AVEC IMAGES
     // ===========================
@@ -169,128 +188,23 @@ async function initDatabase() {
     }
     console.log('✅ 5 catégories créées');
 
-    // Créer des produits avec IMAGES (URLs Unsplash)
+    // Créer des produits avec IMAGES
     const products = [
-      [
-        'Laptop HP 15', 
-        'Ordinateur portable performant avec processeur Intel i7, 16GB RAM, SSD 512GB', 
-        899.99, 
-        10, 
-        1,
-        'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500&auto=format&fit=crop'
-      ],
-      [
-        'iPhone 15 Pro', 
-        'Smartphone dernière génération avec puce A17 Pro, caméra 48MP', 
-        1199.99, 
-        5, 
-        1,
-        'https://images.unsplash.com/photo-1678685888221-cda773a3dcdb?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Sony Headphones WH-1000XM5', 
-        'Casque audio sans fil avec réduction de bruit active', 
-        199.99, 
-        20, 
-        1,
-        'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Apple Watch Series 9', 
-        'Montre connectée avec capteur de santé avancé', 
-        449.99, 
-        15, 
-        1,
-        'https://images.unsplash.com/photo-1434494878577-86c23bcb06b9?w=500&auto=format&fit=crop'
-      ],
-      [
-        'T-shirt Nike Dri-FIT', 
-        'T-shirt sport confortable et respirant', 
-        29.99, 
-        50, 
-        2,
-        'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Jean Levis 501', 
-        'Jean classique de qualité premium', 
-        79.99, 
-        30, 
-        2,
-        'https://images.unsplash.com/photo-1542272604-787c3835535d?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Sneakers Adidas Ultraboost', 
-        'Chaussures de running confortables', 
-        149.99, 
-        25, 
-        2,
-        'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Chaise Bureau Ergonomique', 
-        'Chaise de bureau avec support lombaire réglable', 
-        149.99, 
-        15, 
-        3,
-        'https://images.unsplash.com/photo-1580480055273-228ff5388ef8?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Lampe LED Design', 
-        'Lampe de bureau moderne avec luminosité ajustable', 
-        39.99, 
-        35, 
-        3,
-        'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Ballon Football Nike', 
-        'Ballon de football officiel taille 5', 
-        24.99, 
-        40, 
-        4,
-        'https://images.unsplash.com/photo-1614632537197-38a17061c2bd?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Raquette Tennis Wilson', 
-        'Raquette de tennis professionnelle', 
-        89.99, 
-        12, 
-        4,
-        'https://images.unsplash.com/photo-1617083278159-30cf96383dd4?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Yoga Mat Premium', 
-        'Tapis de yoga antidérapant 6mm', 
-        34.99, 
-        50, 
-        4,
-        'https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Python Programming Guide', 
-        'Livre complet pour apprendre Python', 
-        39.99, 
-        25, 
-        5,
-        'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=500&auto=format&fit=crop'
-      ],
-      [
-        'JavaScript: The Definitive Guide', 
-        'Guide de référence JavaScript', 
-        44.99, 
-        20, 
-        5,
-        'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=500&auto=format&fit=crop'
-      ],
-      [
-        'Design Thinking Magazine', 
-        'Magazine mensuel sur le design', 
-        9.99, 
-        100, 
-        5,
-        'https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=500&auto=format&fit=crop'
-      ]
+      ['Laptop HP 15', 'Ordinateur portable performant', 899.99, 10, 1, 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500'],
+      ['iPhone 15 Pro', 'Smartphone dernière génération', 1199.99, 5, 1, 'https://images.unsplash.com/photo-1678685888221-cda773a3dcdb?w=500'],
+      ['Sony Headphones WH-1000XM5', 'Casque audio sans fil', 199.99, 20, 1, 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500'],
+      ['Apple Watch Series 9', 'Montre connectée', 449.99, 15, 1, 'https://images.unsplash.com/photo-1434494878577-86c23bcb06b9?w=500'],
+      ['T-shirt Nike Dri-FIT', 'T-shirt sport confortable', 29.99, 50, 2, 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=500'],
+      ['Jean Levis 501', 'Jean classique', 79.99, 30, 2, 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=500'],
+      ['Sneakers Adidas Ultraboost', 'Chaussures de running', 149.99, 25, 2, 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500'],
+      ['Chaise Bureau Ergonomique', 'Chaise de bureau', 149.99, 15, 3, 'https://images.unsplash.com/photo-1580480055273-228ff5388ef8?w=500'],
+      ['Lampe LED Design', 'Lampe de bureau moderne', 39.99, 35, 3, 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=500'],
+      ['Ballon Football Nike', 'Ballon de football officiel', 24.99, 40, 4, 'https://images.unsplash.com/photo-1614632537197-38a17061c2bd?w=500'],
+      ['Raquette Tennis Wilson', 'Raquette professionnelle', 89.99, 12, 4, 'https://images.unsplash.com/photo-1617083278159-30cf96383dd4?w=500'],
+      ['Yoga Mat Premium', 'Tapis de yoga antidérapant', 34.99, 50, 4, 'https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=500'],
+      ['Python Programming Guide', 'Livre complet Python', 39.99, 25, 5, 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=500'],
+      ['JavaScript Guide', 'Guide de référence JavaScript', 44.99, 20, 5, 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=500'],
+      ['Design Magazine', 'Magazine mensuel design', 9.99, 100, 5, 'https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=500']
     ];
 
     for (const [name, description, price, stock, categoryId, imageUrl] of products) {
@@ -303,23 +217,13 @@ async function initDatabase() {
 
     console.log('\n🎉 Base de données initialisée avec succès !');
     console.log('\n📊 Résumé :');
+    console.log('   - 8 tables créées (dont notifications pour SQS)');
     console.log('   - 2 utilisateurs (1 admin, 1 client)');
     console.log('   - 5 catégories');
     console.log('   - 15 produits avec images');
-    console.log('\n🔐 Connexion Admin :');
-    console.log('   Email: admin@ecommerce.com');
-    console.log('   Password: admin123');
-    console.log('   Rôle: admin (accès complet)');
-    console.log('\n👤 Connexion Client :');
-    console.log('   Email: john@example.com');
-    console.log('   Password: user123');
-    console.log('   Rôle: customer (pas d\'accès admin)');
-    console.log('\n🖼️  Images :');
-    console.log('   Toutes les images sont hébergées sur Unsplash');
-    console.log('   Elles s\'afficheront automatiquement dans l\'interface');
-    
+
   } catch (error) {
-    console.error('❌ Erreur lors de l\'initialisation:', error.message);
+    console.error('❌ Erreur:', error.message);
     process.exit(1);
   } finally {
     if (connection) {

@@ -53,13 +53,19 @@ aws ecr get-login-password --region us-east-1 | docker login --username AWS --pa
 
 cd backend && docker build -t $ECR_REGISTRY/ecommerce-backend:latest . && docker push $ECR_REGISTRY/ecommerce-backend:latest && cd ..
 cd frontend && docker build -t $ECR_REGISTRY/ecommerce-frontend:latest . && docker push $ECR_REGISTRY/ecommerce-frontend:latest && cd ..
-#cd worker && docker build -t $ECR_REGISTRY/ecommerce-worker:latest . && docker push $ECR_REGISTRY/ecommerce-worker:latest && cd ..
+cd worker && docker build -t $ECR_REGISTRY/ecommerce-worker:latest . && docker push $ECR_REGISTRY/ecommerce-worker:latest && cd ..
 
 # PHASE 4: Deploy Apps
 echo -e "${BLUE}🚀 Phase 4: Deploy Applications${NC}"
-kubectl rollout restart deployment/backend-deployment deployment/frontend-deployment 
+kubectl rollout restart deployment/backend-deployment deployment/frontend-deployment
 kubectl rollout status deployment/backend-deployment --timeout=5m
 kubectl rollout status deployment/frontend-deployment --timeout=5m
+
+# ✅ RESTART WORKER (après que l'image soit buildée)
+echo -e "${BLUE}🔄 Restart Worker (nouvelle image disponible)${NC}"
+kubectl delete pod -l app=worker --ignore-not-found=true
+sleep 10
+kubectl rollout status deployment/worker-deployment --timeout=5m || echo -e "${YELLOW}⚠️  Worker en cours de démarrage (vérifier manuellement)${NC}"
 
 # PHASE 5: Init DB
 echo -e "${BLUE}🗄️  Phase 5: Database${NC}"
@@ -74,4 +80,12 @@ echo -e "${GREEN}🎉 DÉPLOIEMENT RÉUSSI !${NC}"
 APP_URL=$(kubectl get ingress ecommerce-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 echo -e "${BLUE}🌍 URL: http://$APP_URL${NC}"
 echo ""
+
+# Afficher URL SQS
+cd terraform
+SQS_QUEUE_URL=$(terraform output -raw sqs_queue_url 2>/dev/null || echo "Non disponible")
+echo -e "${YELLOW}📬 Queue SQS: $SQS_QUEUE_URL${NC}"
+cd ..
+echo ""
+
 kubectl get pods

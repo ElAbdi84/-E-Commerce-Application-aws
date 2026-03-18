@@ -58,7 +58,7 @@ resource "kubernetes_config_map" "app_config" {
     NODE_ENV          = var.environment
     AWS_REGION        = var.aws_region
     S3_BUCKET_NAME    = data.aws_s3_bucket.products.id
-    SQS_QUEUE_URL     = ""
+    SQS_QUEUE_URL     = data.aws_sqs_queue.main.url
     BACKEND_PORT      = "5000"
     REACT_APP_API_URL = ""
   }
@@ -287,6 +287,10 @@ resource "kubernetes_deployment" "frontend" {
   depends_on = [kubernetes_config_map.app_config]
 }
 
+
+
+
+
 # ==================== SERVICE FRONTEND ====================
 
 resource "kubernetes_service" "frontend" {
@@ -321,14 +325,11 @@ resource "kubernetes_service" "frontend" {
 # ==================== DEPLOYMENT WORKER ====================
 
 resource "kubernetes_deployment" "worker" {
-  wait_for_rollout = false
   metadata {
     name      = "worker-deployment"
     namespace = "default"
-    
     labels = {
-      app  = "worker"
-      tier = "processing"
+      app = "worker"
     }
   }
 
@@ -344,22 +345,32 @@ resource "kubernetes_deployment" "worker" {
     template {
       metadata {
         labels = {
-          app  = "worker"
-          tier = "processing"
+          app = "worker"
         }
       }
 
       spec {
         container {
           name  = "worker"
-          image = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/ecommerce-worker:latest"
+          image = "${data.aws_ecr_repository.worker.repository_url}:latest"
+          
+          image_pull_policy = "Always"
 
+          # ✅ ConfigMap (AWS_REGION, SQS_QUEUE_URL, S3_BUCKET_NAME)
           env_from {
             config_map_ref {
               name = kubernetes_config_map.app_config.metadata[0].name
             }
           }
 
+          # ✅ AJOUTER : DB Credentials
+          env_from {
+            secret_ref {
+              name = kubernetes_secret.db_credentials.metadata[0].name
+            }
+          }
+
+          # ✅ AJOUTER : AWS Credentials
           env_from {
             secret_ref {
               name = kubernetes_secret.aws_credentials.metadata[0].name
@@ -368,12 +379,12 @@ resource "kubernetes_deployment" "worker" {
 
           resources {
             requests = {
-              memory = "64Mi"
-              cpu    = "50m"
+              cpu    = "100m"
+              memory = "128Mi"
             }
             limits = {
-              memory = "128Mi"
-              cpu    = "100m"
+              cpu    = "500m"
+              memory = "512Mi"
             }
           }
         }
@@ -382,10 +393,14 @@ resource "kubernetes_deployment" "worker" {
   }
 
   depends_on = [
-    kubernetes_secret.aws_credentials,
-    kubernetes_config_map.app_config
+    kubernetes_config_map.app_config,
+    kubernetes_secret.db_credentials,      # ✅ AJOUTER
+    kubernetes_secret.aws_credentials      # ✅ AJOUTER
   ]
+  
+  wait_for_rollout = false
 }
+
 
 # ==================== INGRESS (ALB) ====================
 

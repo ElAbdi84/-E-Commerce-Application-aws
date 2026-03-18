@@ -8,6 +8,8 @@ const multer = require('multer');
 const AWS = require('aws-sdk');
 const path = require('path');
 const fs = require('fs').promises;
+const sqsService = require('./services/sqsService');
+
 require('dotenv').config();
 
 const app = express();
@@ -104,29 +106,34 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
+ 
     const [users] = await pool.execute(
       'SELECT * FROM users WHERE email = ?',
       [email]
     );
-
+ 
     if (users.length === 0) {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
-
+ 
     const user = users[0];
     const validPassword = await bcrypt.compare(password, user.password);
-
+ 
     if (!validPassword) {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
-
+ 
     const token = jwt.sign(
-      { userId: user.id, username: user.username, role: user.role },
+      { 
+        userId: user.id, 
+        username: user.username,
+        email: user.email,        // ✅ AJOUTER CETTE LIGNE
+        role: user.role 
+      },
       process.env.JWT_SECRET || 'secret-key',
       { expiresIn: '24h' }
     );
-
+ 
     console.log(`[LOG] Connexion: ${user.username} (${user.role})`);
     res.json({
       token,
@@ -557,27 +564,27 @@ app.delete('/api/cart', authenticateToken, async (req, res) => {
 // Créer une commande (Checkout)
 app.post('/api/orders', authenticateToken, async (req, res) => {
   const connection = await pool.getConnection();
-
+ 
   try {
     await connection.beginTransaction();
-
+ 
     const { shippingAddress, paymentMethod } = req.body;
-
+ 
     // Récupérer les items du panier
     const [cartItems] = await connection.execute(
-      `SELECT c.*, p.price, p.stock 
+      `SELECT c.*, p.price, p.stock, p.name
        FROM cart_items c 
        JOIN products p ON c.product_id = p.id 
        WHERE c.user_id = ?`,
       [req.user.userId]
     );
-
+ 
     if (cartItems.length === 0) {
       await connection.rollback();
       return res.status(400).json({ error: 'Panier vide' });
     }
-
-    // Vérifier le stock pour tous les produits
+ 
+    // Vérifier le stock
     for (const item of cartItems) {
       if (item.stock < item.quantity) {
         await connection.rollback();
@@ -586,21 +593,21 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         });
       }
     }
-
+ 
     // Calculer le total
     const total = cartItems.reduce((sum, item) =>
       sum + (item.price * item.quantity), 0
     );
-
+ 
     // Créer la commande
     const [orderResult] = await connection.execute(
       `INSERT INTO orders (user_id, total_amount, status, shipping_address, payment_method) 
        VALUES (?, ?, ?, ?, ?)`,
       [req.user.userId, total, 'pending', shippingAddress, paymentMethod]
     );
-
+ 
     const orderId = orderResult.insertId;
-
+ 
     // Créer les order_items et mettre à jour le stock
     for (const item of cartItems) {
       await connection.execute(
@@ -608,46 +615,46 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
          VALUES (?, ?, ?, ?)`,
         [orderId, item.product_id, item.quantity, item.price]
       );
-
+ 
       await connection.execute(
         'UPDATE products SET stock = stock - ? WHERE id = ?',
         [item.quantity, item.product_id]
       );
     }
-
+ 
     // Vider le panier
     await connection.execute(
       'DELETE FROM cart_items WHERE user_id = ?',
       [req.user.userId]
     );
-
+ 
     await connection.commit();
-
+ 
     console.log(`[LOG] Commande ${orderId} créée par user ${req.user.userId}`);
-
-    // Envoyer message à SQS pour email de confirmation
-    if (process.env.SQS_QUEUE_URL) {
-      const params = {
-        QueueUrl: process.env.SQS_QUEUE_URL,
-        MessageBody: JSON.stringify({
-          type: 'ORDER_CREATED',
-          orderId: orderId,
-          userId: req.user.userId,
-          totalAmount: total,
-          items: cartItems.length
-        })
-      };
-
-      await sqs.sendMessage(params).promise();
-      console.log('[LOG] Message SQS envoyé pour confirmation email');
+ 
+    // ✅ ENVOYER MESSAGE SQS (version corrigée)
+    if (sqsService && process.env.SQS_QUEUE_URL) {
+      try {
+        await sqsService.sendOrderCreatedMessage({
+          id: orderId,
+          user_id: req.user.userId,
+          total_amount: parseFloat(total),
+          items_count: cartItems.length,
+          user_email: req.user.email || 'unknown@example.com',  // ✅ Email du JWT
+          shipping_address: shippingAddress
+        });
+        console.log(`[SQS] ✅ Message envoyé à ${req.user.email} pour commande #${orderId}`);
+      } catch (sqsError) {
+        console.error('[SQS] ❌ Erreur SQS:', sqsError);
+      }
     }
-
+ 
     res.status(201).json({
       message: 'Commande créée avec succès',
       orderId,
       total
     });
-
+ 
   } catch (error) {
     await connection.rollback();
     console.error('[ERROR] Create order:', error);
@@ -756,4 +763,18 @@ app.listen(PORT, () => {
   console.log(`🗄️  Base: ${process.env.DB_HOST || 'localhost'}`);
   console.log(`📁 Upload: Mode ${process.env.S3_BUCKET_NAME ? 'S3' : 'Local'}`);
   console.log(`📂 Dossier uploads: ${path.join(__dirname, 'public', 'uploads')}`);
+});
+// ============== SQS ==============
+
+app.get('/api/sqs/stats', async (req, res) => {
+  const stats = await sqsService.getQueueStats();
+  res.json(stats || { error: 'SQS not configured' });
+});
+
+app.post('/api/sqs/test/order', async (req, res) => {
+  const messageId = await sqsService.sendOrderCreatedMessage({
+    id: 999, user_id: 1, total_amount: 199.99,
+    items_count: 3, user_email: 'o.elabdi@edu.umi.ac.ma'
+  });
+  res.json({ success: true, messageId });
 });
