@@ -62,3 +62,17 @@ data "aws_sqs_queue" "main" {
 data "aws_ecr_repository" "worker" {
   name = "ecommerce-worker"
 }
+
+# ==================== DATA SOURCES ====================
+
+data "aws_eks_cluster" "main" {
+  name = var.cluster_name
+}
+
+data "aws_iam_openid_connect_provider" "eks" {
+  url = data.aws_eks_cluster.main.identity[0].oidc[0].issuer
+}
+
+data "aws_iam_policy" "fluentbit_cloudwatch" {
+  name = "${var.project_name}-fluentbit-cloudwatch"
+}

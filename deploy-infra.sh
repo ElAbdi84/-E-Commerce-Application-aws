@@ -40,8 +40,6 @@ kubectl get nodes
 
 # PHASE 2: Terraform K8s
 echo -e "${BLUE}☸️  Phase 2: Ressources Kubernetes${NC}"
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update
 cd terraform-k8s
 terraform init && terraform apply -auto-approve
 cd ..
@@ -73,6 +71,147 @@ sleep 30
 BACKEND_POD=$(kubectl get pod -l app=backend -o jsonpath='{.items[0].metadata.name}')
 kubectl cp backend/init-db.js $BACKEND_POD:/app/init-db.js
 kubectl exec $BACKEND_POD -- node init-db.js || true
+
+# PHASE 6: CloudWatch Dashboard
+echo -e "${BLUE}📊 Phase 6: CloudWatch Dashboard${NC}"
+REGION="us-east-1"
+PROJECT_NAME="ecommerce-pfe-elabdi"
+QUEUE_NAME="ecommerce-pfe-elabdi-queue"  # ✅ AJOUTER nom queue
+ALB_ARN=$(aws elbv2 describe-load-balancers --region $REGION \
+  --query 'LoadBalancers[?contains(LoadBalancerName, `k8s`)].LoadBalancerArn' \
+  --output text 2>/dev/null || echo "")
+ALB_NAME=$(aws elbv2 describe-load-balancers --region $REGION \
+  --query 'LoadBalancers[?contains(LoadBalancerName, `k8s`)].LoadBalancerName' \
+  --output text 2>/dev/null || echo "")
+
+if [ -n "$ALB_NAME" ]; then
+  echo "  → ALB trouvé: $ALB_NAME"
+  echo "  → Queue SQS: $QUEUE_NAME"
+  
+  aws cloudwatch put-dashboard \
+    --dashboard-name "${PROJECT_NAME}-monitoring" \
+    --region $REGION \
+    --dashboard-body "{
+      \"widgets\": [
+        {
+          \"type\": \"metric\",
+          \"x\": 0,
+          \"y\": 0,
+          \"width\": 12,
+          \"height\": 6,
+          \"properties\": {
+            \"metrics\": [
+              [ \"AWS/ApplicationELB\", \"RequestCount\", { \"stat\": \"Sum\", \"label\": \"Requests\" } ],
+              [ \".\", \"TargetResponseTime\", { \"stat\": \"Average\", \"label\": \"Latency (avg)\", \"yAxis\": \"right\" } ]
+            ],
+            \"view\": \"timeSeries\",
+            \"stacked\": false,
+            \"region\": \"${REGION}\",
+            \"title\": \"ALB - Traffic & Latency\",
+            \"period\": 300,
+            \"yAxis\": {
+              \"left\": { \"label\": \"Requests\" },
+              \"right\": { \"label\": \"Seconds\" }
+            }
+          }
+        },
+        {
+          \"type\": \"metric\",
+          \"x\": 12,
+          \"y\": 0,
+          \"width\": 12,
+          \"height\": 6,
+          \"properties\": {
+            \"metrics\": [
+              [ \"AWS/ApplicationELB\", \"HTTPCode_Target_2XX_Count\", { \"stat\": \"Sum\", \"label\": \"2xx (Success)\", \"color\": \"#2ca02c\" } ],
+              [ \".\", \"HTTPCode_Target_4XX_Count\", { \"stat\": \"Sum\", \"label\": \"4xx (Client Error)\", \"color\": \"#ff7f0e\" } ],
+              [ \".\", \"HTTPCode_Target_5XX_Count\", { \"stat\": \"Sum\", \"label\": \"5xx (Server Error)\", \"color\": \"#d62728\" } ]
+            ],
+            \"view\": \"timeSeries\",
+            \"stacked\": false,
+            \"region\": \"${REGION}\",
+            \"title\": \"ALB - HTTP Status Codes\",
+            \"period\": 300
+          }
+        },
+        {
+          \"type\": \"metric\",
+          \"x\": 0,
+          \"y\": 6,
+          \"width\": 12,
+          \"height\": 6,
+          \"properties\": {
+            \"metrics\": [
+              [ \"AWS/SQS\", \"NumberOfMessagesSent\", { \"stat\": \"Sum\", \"label\": \"Messages Sent\", \"color\": \"#1f77b4\" }, { \"QueueName\": \"${QUEUE_NAME}\" } ],
+              [ \".\", \"NumberOfMessagesReceived\", { \"stat\": \"Sum\", \"label\": \"Messages Received\", \"color\": \"#ff7f0e\" }, { \"QueueName\": \"${QUEUE_NAME}\" } ],
+              [ \".\", \"ApproximateNumberOfMessagesVisible\", { \"stat\": \"Average\", \"label\": \"Messages in Queue\", \"color\": \"#2ca02c\" }, { \"QueueName\": \"${QUEUE_NAME}\" } ]
+            ],
+            \"view\": \"timeSeries\",
+            \"stacked\": false,
+            \"region\": \"${REGION}\",
+            \"title\": \"SQS - ${QUEUE_NAME}\",
+            \"period\": 60,
+            \"yAxis\": {
+              \"left\": { \"min\": 0 }
+            }
+          }
+        },
+        {
+          \"type\": \"metric\",
+          \"x\": 12,
+          \"y\": 6,
+          \"width\": 12,
+          \"height\": 6,
+          \"properties\": {
+            \"metrics\": [
+              [ \"AWS/RDS\", \"CPUUtilization\", { \"stat\": \"Average\", \"label\": \"RDS CPU %\" } ],
+              [ \".\", \"DatabaseConnections\", { \"stat\": \"Average\", \"label\": \"DB Connections\", \"yAxis\": \"right\" } ]
+            ],
+            \"view\": \"timeSeries\",
+            \"stacked\": false,
+            \"region\": \"${REGION}\",
+            \"title\": \"RDS - Database Metrics\",
+            \"period\": 300,
+            \"yAxis\": {
+              \"left\": { \"min\": 0, \"max\": 100, \"label\": \"CPU %\" },
+              \"right\": { \"label\": \"Connections\" }
+            }
+          }
+        },
+        {
+          \"type\": \"log\",
+          \"x\": 0,
+          \"y\": 12,
+          \"width\": 12,
+          \"height\": 6,
+          \"properties\": {
+            \"query\": \"SOURCE '/aws/eks/${CLUSTER_NAME}/backend'\\n| fields @timestamp, @message\\n| filter @message like /ERROR/\\n| sort @timestamp desc\\n| limit 20\",
+            \"region\": \"${REGION}\",
+            \"title\": \"Backend - Recent Errors\",
+            \"stacked\": false
+          }
+        },
+        {
+          \"type\": \"log\",
+          \"x\": 12,
+          \"y\": 12,
+          \"width\": 12,
+          \"height\": 6,
+          \"properties\": {
+            \"query\": \"SOURCE '/aws/eks/${CLUSTER_NAME}/worker'\\n| fields @timestamp, @message\\n| filter @message like /WORKER/\\n| sort @timestamp desc\\n| limit 20\",
+            \"region\": \"${REGION}\",
+            \"title\": \"Worker - Recent Activity\",
+            \"stacked\": false
+          }
+        }
+      ]
+    }" 2>/dev/null && echo "  ✅ Dashboard créé avec métriques SQS" || echo "  ⚠️  Erreur création dashboard (non bloquant)"
+  
+  DASHBOARD_URL="https://console.aws.amazon.com/cloudwatch/home?region=${REGION}#dashboards:name=${PROJECT_NAME}-monitoring"
+  echo -e "${GREEN}  📊 Dashboard: ${DASHBOARD_URL}${NC}"
+else
+  echo "  ⚠️  ALB non trouvé, dashboard non créé"
+fi
 
 # Résultat
 echo ""
