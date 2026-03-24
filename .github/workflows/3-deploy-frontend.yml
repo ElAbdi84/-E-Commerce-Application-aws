@@ -32,7 +32,7 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: ecommerce-frontend
-  EKS_CLUSTER_NAME: ecommerce-pfe-elabdi-cluster
+  EKS_CLUSTER_NAME: ecommerce-cluster
   DEPLOYMENT_NAME: frontend-deployment
 
 jobs:
