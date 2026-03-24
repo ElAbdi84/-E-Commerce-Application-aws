@@ -685,7 +685,7 @@ function App() {
 
       {/* Navigation */}
       <nav className="navbar">
-        <h1 onClick={() => setCurrentPage('home')}>🛒 E-Shop</h1>
+        <h1 onClick={() => setCurrentPage('home')}>🛒 E-Shoppp</h1>
         <div className="nav-links">
           <button onClick={() => setCurrentPage('home')}>Produits</button>
           {user && (
