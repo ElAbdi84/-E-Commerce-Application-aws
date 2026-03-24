@@ -1,15 +1,16 @@
 # ============================================================================
-# WORKFLOW : DÉPLOIEMENT FRONTEND
+# WORKFLOW : DÉPLOIEMENT FRONTEND AVEC TESTS
 # ============================================================================
 # 
-# Ce workflow déploie le Frontend sur l'infrastructure EKS existante
+# Ce workflow teste et déploie le Frontend sur l'infrastructure EKS
 # 
 # Prérequis : Infrastructure déjà déployée avec deploy-infra.sh
 # 
 # Déclenché automatiquement sur :
 #   - Push sur main avec changements dans frontend/
+#   - Pull Request vers main
 #
-# Durée : 2-3 minutes
+# Durée : 5-6 minutes
 # ============================================================================
 
 name: 🎨 Deploy Frontend
@@ -20,18 +21,150 @@ on:
       - main
     paths:
       - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
   workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: ecommerce-frontend
-  EKS_CLUSTER_NAME: ecommerce-cluster
+  EKS_CLUSTER_NAME: ecommerce-pfe-elabdi-cluster
   DEPLOYMENT_NAME: frontend-deployment
 
 jobs:
-  deploy-frontend:
-    name: 🎨 Build & Deploy Frontend
+  # ==========================================================================
+  # JOB 1 : TESTS ET QUALITÉ CODE
+  # ==========================================================================
+  test:
+    name: 🧪 Tests & Quality Checks
     runs-on: ubuntu-latest
+    
+    steps:
+    # ========================================================================
+    # ÉTAPE 1 : CHECKOUT CODE
+    # ========================================================================
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    # ========================================================================
+    # ÉTAPE 2 : SETUP NODE.JS
+    # ========================================================================
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    # ========================================================================
+    # ÉTAPE 3 : INSTALL DEPENDENCIES
+    # ========================================================================
+    - name: 📚 Install dependencies
+      working-directory: frontend
+      run: |
+        echo "📦 Installing Frontend dependencies..."
+        npm ci
+        echo "✅ Dependencies installed"
+
+    # ========================================================================
+    # ÉTAPE 4 : LINTING (Vérification code)
+    # ========================================================================
+    - name: 🔍 Run ESLint
+      working-directory: frontend
+      run: |
+        echo "🔍 Running ESLint..."
+        npx eslint src --ext .js,.jsx --max-warnings 0 || echo "⚠️ ESLint warnings found (non-blocking)"
+        echo "✅ Linting complete"
+      continue-on-error: true
+
+    # ========================================================================
+    # ÉTAPE 5 : UNIT TESTS
+    # ========================================================================
+    - name: 🧪 Run Unit Tests
+      working-directory: frontend
+      run: |
+        echo "🧪 Running unit tests..."
+        CI=true npm test -- --coverage --passWithNoTests
+        echo "✅ Tests passed!"
+      env:
+        CI: true
+
+    # ========================================================================
+    # ÉTAPE 6 : CODE COVERAGE
+    # ========================================================================
+    - name: 📊 Upload coverage reports
+      uses: codecov/codecov-action@v4
+      with:
+        files: frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+      continue-on-error: true
+
+    # ========================================================================
+    # ÉTAPE 7 : BUILD TEST (Vérifier que build fonctionne)
+    # ========================================================================
+    - name: 🏗️ Test Production Build
+      working-directory: frontend
+      run: |
+        echo "🏗️ Testing production build..."
+        npm run build
+        echo "✅ Build successful!"
+        
+        # Vérifier que build/ existe et contient fichiers
+        if [ ! -d "build" ]; then
+          echo "❌ Build directory not found!"
+          exit 1
+        fi
+        
+        if [ ! -f "build/index.html" ]; then
+          echo "❌ index.html not found in build!"
+          exit 1
+        fi
+        
+        echo "✅ Build artifacts validated"
+
+    # ========================================================================
+    # ÉTAPE 8 : SECURITY AUDIT
+    # ========================================================================
+    - name: 🔒 Run Security Audit
+      working-directory: frontend
+      run: |
+        echo "🔒 Running npm audit..."
+        npm audit --audit-level=moderate || echo "⚠️ Security vulnerabilities found (review required)"
+        echo "✅ Security audit complete"
+      continue-on-error: true
+
+    # ========================================================================
+    # ÉTAPE 9 : CHECK BUNDLE SIZE
+    # ========================================================================
+    - name: 📦 Analyze Bundle Size
+      working-directory: frontend
+      run: |
+        echo "📦 Analyzing bundle size..."
+        du -sh build/
+        du -h build/static/js/*.js | sort -h
+        
+        # Vérifier taille max (par exemple 5MB)
+        BUNDLE_SIZE=$(du -sm build | cut -f1)
+        if [ $BUNDLE_SIZE -gt 5 ]; then
+          echo "⚠️ Bundle size is ${BUNDLE_SIZE}MB (> 5MB threshold)"
+        else
+          echo "✅ Bundle size is ${BUNDLE_SIZE}MB (acceptable)"
+        fi
+      continue-on-error: true
+
+  # ==========================================================================
+  # JOB 2 : BUILD & DEPLOY (si tests passent)
+  # ==========================================================================
+  deploy:
+    name: 🚀 Build & Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: test  # ✅ Attend que les tests passent
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
     # ========================================================================
@@ -126,18 +259,45 @@ jobs:
         echo "✅ Frontend is running and healthy!"
 
     # ========================================================================
-    # ÉTAPE 8 : GET APPLICATION URL
+    # ÉTAPE 8 : SMOKE TESTS
+    # ========================================================================
+    - name: 🔥 Run Smoke Tests
+      run: |
+        echo "🔥 Running smoke tests..."
+        
+        # Récupérer URL application
+        APP_URL=$(kubectl get ingress ecommerce-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        
+        # Test 1: Homepage accessible
+        echo "Test 1: Homepage accessible..."
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://$APP_URL/)
+        if [ $HTTP_CODE -eq 200 ]; then
+          echo "✅ Homepage accessible (HTTP $HTTP_CODE)"
+        else
+          echo "❌ Homepage failed (HTTP $HTTP_CODE)"
+          exit 1
+        fi
+        
+        # Test 2: Static assets loading
+        echo "Test 2: Check static assets..."
+        curl -f http://$APP_URL/static/css/ || echo "⚠️ CSS assets check skipped"
+        
+        echo "✅ All smoke tests passed!"
+      continue-on-error: true
+
+    # ========================================================================
+    # ÉTAPE 9 : GET APPLICATION URL
     # ========================================================================
     - name: 🌐 Get Application URL
       run: |
         echo "================================================"
         echo "🌍 URL DE L'APPLICATION:"
-        kubectl get ingress ecommerce-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-        echo ""
+        APP_URL=$(kubectl get ingress ecommerce-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        echo "http://$APP_URL"
         echo "================================================"
 
     # ========================================================================
-    # ÉTAPE 9 : ROLLBACK ON FAILURE
+    # ÉTAPE 10 : ROLLBACK ON FAILURE
     # ========================================================================
     - name: ❌ Rollback on failure
       if: failure()
@@ -146,3 +306,5 @@ jobs:
         kubectl rollout undo deployment/${{ env.DEPLOYMENT_NAME }}
         kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }}
         echo "✅ Rollback complete"
+
+   

@@ -1,4 +1,6 @@
 # terraform/versions.tf
+# Configure Terraform et les providers (AWS, Kubernetes, Helm). 
+# Garantit que tout le monde utilise les mêmes versions pour la reproductibilité
 
 terraform {
   required_version = ">= 1.7.0"

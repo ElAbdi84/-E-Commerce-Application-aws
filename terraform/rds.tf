@@ -1,4 +1,7 @@
 # terraform/rds.tf
+# Crée la base de données MySQL managée.
+#  AWS gère automatiquement les sauvegardes, mises à jour et haute disponibilité.
+
 
 resource "aws_db_subnet_group" "main" {
   name       = "${var.project_name}-db-subnet-group"

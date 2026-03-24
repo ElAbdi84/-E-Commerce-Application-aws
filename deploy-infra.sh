@@ -76,7 +76,6 @@ kubectl exec $BACKEND_POD -- node init-db.js || true
 echo -e "${BLUE}📊 Phase 6: CloudWatch Dashboard${NC}"
 REGION="us-east-1"
 PROJECT_NAME="ecommerce-pfe-elabdi"
-QUEUE_NAME="ecommerce-pfe-elabdi-queue"  # ✅ AJOUTER nom queue
 ALB_ARN=$(aws elbv2 describe-load-balancers --region $REGION \
   --query 'LoadBalancers[?contains(LoadBalancerName, `k8s`)].LoadBalancerArn' \
   --output text 2>/dev/null || echo "")
@@ -86,7 +85,6 @@ ALB_NAME=$(aws elbv2 describe-load-balancers --region $REGION \
 
 if [ -n "$ALB_NAME" ]; then
   echo "  → ALB trouvé: $ALB_NAME"
-  echo "  → Queue SQS: $QUEUE_NAME"
   
   aws cloudwatch put-dashboard \
     --dashboard-name "${PROJECT_NAME}-monitoring" \
@@ -142,15 +140,15 @@ if [ -n "$ALB_NAME" ]; then
           \"height\": 6,
           \"properties\": {
             \"metrics\": [
-              [ \"AWS/SQS\", \"NumberOfMessagesSent\", { \"stat\": \"Sum\", \"label\": \"Messages Sent\", \"color\": \"#1f77b4\" }, { \"QueueName\": \"${QUEUE_NAME}\" } ],
-              [ \".\", \"NumberOfMessagesReceived\", { \"stat\": \"Sum\", \"label\": \"Messages Received\", \"color\": \"#ff7f0e\" }, { \"QueueName\": \"${QUEUE_NAME}\" } ],
-              [ \".\", \"ApproximateNumberOfMessagesVisible\", { \"stat\": \"Average\", \"label\": \"Messages in Queue\", \"color\": \"#2ca02c\" }, { \"QueueName\": \"${QUEUE_NAME}\" } ]
+              [ \"AWS/SQS\", \"NumberOfMessagesSent\", { \"stat\": \"Sum\", \"label\": \"Messages Sent\" } ],
+              [ \".\", \"NumberOfMessagesReceived\", { \"stat\": \"Sum\", \"label\": \"Messages Received\" } ],
+              [ \".\", \"ApproximateNumberOfMessagesVisible\", { \"stat\": \"Average\", \"label\": \"Messages in Queue\" } ]
             ],
             \"view\": \"timeSeries\",
             \"stacked\": false,
             \"region\": \"${REGION}\",
-            \"title\": \"SQS - ${QUEUE_NAME}\",
-            \"period\": 60,
+            \"title\": \"SQS - Messages Activity\",
+            \"period\": 300,
             \"yAxis\": {
               \"left\": { \"min\": 0 }
             }
@@ -205,7 +203,7 @@ if [ -n "$ALB_NAME" ]; then
           }
         }
       ]
-    }" 2>/dev/null && echo "  ✅ Dashboard créé avec métriques SQS" || echo "  ⚠️  Erreur création dashboard (non bloquant)"
+    }" 2>/dev/null && echo "  ✅ Dashboard créé" || echo "  ⚠️  Erreur création dashboard (non bloquant)"
   
   DASHBOARD_URL="https://console.aws.amazon.com/cloudwatch/home?region=${REGION}#dashboards:name=${PROJECT_NAME}-monitoring"
   echo -e "${GREEN}  📊 Dashboard: ${DASHBOARD_URL}${NC}"

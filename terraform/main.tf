@@ -1,4 +1,6 @@
 # terraform/main.tf
+# Point d'entrée principal. 
+# Utilise le module EKS officiel qui encapsule les best practices AWS pour créer un cluster production-ready.
 
 # ==================== MODULES EKS ====================
 

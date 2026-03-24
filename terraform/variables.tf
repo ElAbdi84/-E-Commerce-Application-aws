@@ -1,4 +1,6 @@
 # terraform/variables.tf
+# Définit tous les paramètres configurables (région, tailles instances, credentials). 
+# Rend le code réutilisable pour différents environnements.
 
 # ==================== GÉNÉRAL ====================
 

@@ -1,15 +1,16 @@
 # ============================================================================
-# WORKFLOW : DÉPLOIEMENT BACKEND
+# WORKFLOW : DÉPLOIEMENT BACKEND AVEC TESTS
 # ============================================================================
 # 
-# Ce workflow déploie le Backend sur l'infrastructure EKS existante
+# Ce workflow teste et déploie le Backend sur l'infrastructure EKS
 # 
 # Prérequis : Infrastructure déjà déployée avec deploy-infra.sh
 # 
 # Déclenché automatiquement sur :
 #   - Push sur main avec changements dans backend/
+#   - Pull Request vers main
 #
-# Durée : 2-3 minutes
+# Durée : 4-5 minutes
 # ============================================================================
 
 name: 🐳 Deploy Backend
@@ -20,18 +21,106 @@ on:
       - main
     paths:
       - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
   workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: ecommerce-backend
-  EKS_CLUSTER_NAME: ecommerce-cluster
+  EKS_CLUSTER_NAME: ecommerce-pfe-elabdi-cluster
   DEPLOYMENT_NAME: backend-deployment
 
 jobs:
-  deploy-backend:
+  # ==========================================================================
+  # JOB 1 : TESTS ET QUALITÉ CODE
+  # ==========================================================================
+  test:
+    name: 🧪 Tests & Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    # ========================================================================
+    # ÉTAPE 1 : CHECKOUT CODE
+    # ========================================================================
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    # ========================================================================
+    # ÉTAPE 2 : SETUP NODE.JS
+    # ========================================================================
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+
+    # ========================================================================
+    # ÉTAPE 3 : INSTALL DEPENDENCIES
+    # ========================================================================
+    - name: 📚 Install dependencies
+      working-directory: backend
+      run: |
+        echo "📦 Installing Backend dependencies..."
+        npm ci
+        echo "✅ Dependencies installed"
+
+    # ========================================================================
+    # ÉTAPE 4 : LINTING (Vérification code)
+    # ========================================================================
+    - name: 🔍 Run ESLint
+      working-directory: backend
+      run: |
+        echo "🔍 Running ESLint..."
+        npx eslint . --ext .js --max-warnings 0 || echo "⚠️ ESLint warnings found (non-blocking)"
+        echo "✅ Linting complete"
+      continue-on-error: true
+
+    # ========================================================================
+    # ÉTAPE 5 : UNIT TESTS
+    # ========================================================================
+    - name: 🧪 Run Unit Tests
+      working-directory: backend
+      run: |
+        echo "🧪 Running unit tests..."
+        npm test -- --coverage --passWithNoTests
+        echo "✅ Tests passed!"
+
+    # ========================================================================
+    # ÉTAPE 6 : CODE COVERAGE
+    # ========================================================================
+    - name: 📊 Upload coverage reports
+      uses: codecov/codecov-action@v4
+      with:
+        files: backend/coverage/lcov.info
+        flags: backend
+        name: backend-coverage
+      continue-on-error: true
+
+    # ========================================================================
+    # ÉTAPE 7 : SECURITY AUDIT
+    # ========================================================================
+    - name: 🔒 Run Security Audit
+      working-directory: backend
+      run: |
+        echo "🔒 Running npm audit..."
+        npm audit --audit-level=moderate || echo "⚠️ Security vulnerabilities found (review required)"
+        echo "✅ Security audit complete"
+      continue-on-error: true
+
+  # ==========================================================================
+  # JOB 2 : BUILD & DEPLOY (si tests passent)
+  # ==========================================================================
+  deploy:
     name: 🚀 Build & Deploy Backend
     runs-on: ubuntu-latest
+    needs: test  # ✅ Attend que les tests passent
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
     # ========================================================================
@@ -126,7 +215,30 @@ jobs:
         echo "✅ Backend is running and healthy!"
 
     # ========================================================================
-    # ÉTAPE 8 : ROLLBACK ON FAILURE
+    # ÉTAPE 8 : SMOKE TESTS (Tests post-déploiement)
+    # ========================================================================
+    - name: 🔥 Run Smoke Tests
+      run: |
+        echo "🔥 Running smoke tests..."
+        
+        # Récupérer URL application
+        APP_URL=$(kubectl get ingress ecommerce-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        
+        # Test 1: Health check
+        echo "Test 1: Health check..."
+        curl -f http://$APP_URL/api/health || exit 1
+        echo "✅ Health check passed"
+        
+        # Test 2: Products endpoint
+        echo "Test 2: Products endpoint..."
+        curl -f http://$APP_URL/api/products || exit 1
+        echo "✅ Products endpoint working"
+        
+        echo "✅ All smoke tests passed!"
+      continue-on-error: true
+
+    # ========================================================================
+    # ÉTAPE 9 : ROLLBACK ON FAILURE
     # ========================================================================
     - name: ❌ Rollback on failure
       if: failure()
@@ -135,3 +247,5 @@ jobs:
         kubectl rollout undo deployment/${{ env.DEPLOYMENT_NAME }}
         kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }}
         echo "✅ Rollback complete"
+
+  

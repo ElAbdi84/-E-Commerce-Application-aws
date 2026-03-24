@@ -1,4 +1,7 @@
 # terraform/vpc.tf
+# Crée l'architecture réseau multi-AZ : 
+# VPC, subnets publics/privés, IGW, NAT Gateway, route tables. 
+# Architecture en 3 tiers pour la sécurité.
 
 # ==================== VPC ====================
 
