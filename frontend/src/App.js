@@ -216,6 +216,7 @@ function App() {
     } else if (currentPage === 'orders') {
       fetchOrders();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, selectedCategory, searchTerm]);
 
   // Upload image produit
