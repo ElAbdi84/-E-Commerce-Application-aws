@@ -4,7 +4,7 @@ import axios from 'axios';
 import './App.css';
 
 // Configuration de l'URL API (variable d'environnement)
-const API_URL = "/api";
+//const API_URL = "/api";
 
 
 
@@ -47,6 +47,7 @@ function App() {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       fetchUserData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // Fonction pour afficher un message
