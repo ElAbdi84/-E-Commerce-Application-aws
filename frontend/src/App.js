@@ -181,7 +181,8 @@ function App() {
   // Créer une commande
   const createOrder = async (shippingAddress, paymentMethod) => {
     try {
-      const response = await axios.post('/api/orders', {
+      await axios.post('/api/orders', {
+
         shippingAddress,
         paymentMethod
       });
